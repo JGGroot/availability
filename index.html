@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pilot Availability Selector</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            outline: none;
+            /* Prevent text selection during drag */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .calendar-table {
+            border-collapse: separate;
+            border-spacing: 0.25rem;
+        }
+        .calendar-day {
+            transition: all 0.2s ease-in-out;
+            position: relative; /* Needed for the badge */
+        }
+        .calendar-day:focus {
+            outline: none;
+        }
+        .calendar-day.selectable:hover {
+            background-color: #334155; /* slate-700 on hover */
+        }
+        .calendar-day.unavailable {
+            background-color: #dc2626; /* red-600 */
+            color: white;
+            font-weight: 600;
+            transform: scale(1.05);
+            border-radius: 9999px;
+            box-shadow: 0 0 15px rgba(220, 38, 38, 0.5);
+        }
+        .calendar-day.past {
+            color: #475569; /* slate-600 */
+            pointer-events: none;
+        }
+        .date-badge {
+            position: absolute;
+            bottom: 2px;
+            left: 0;
+            right: 0;
+            font-size: 0.6rem; /* 10px */
+            font-weight: 700;
+            color: #e2e8f0; /* slate-200 */
+            line-height: 1;
+        }
+        
+        #menu-content {
+            transition: transform 0.3s ease-in-out;
+        }
+        #menu-btn {
+            transition: box-shadow 0.3s ease;
+        }
+
+        /* --- FIXED: Radial Menu Animation with proper z-index --- */
+        #radial-menu-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 9998;
+            background-color: rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            /* Animation */
+            transition: opacity 0.3s ease-out;
+            opacity: 1;
+        }
+        #radial-menu-backdrop.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        #radial-menu {
+            position: fixed;
+            z-index: 10000;
+            width: 80vmin; 
+            height: 80vmin;
+            max-width: 400px;
+            max-height: 400px;
+            background: #1e293b; 
+            border-radius: 50%;
+            border: 2px solid #334155; 
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            overflow: hidden;
+            pointer-events: none;
+            /* Animation */
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); /* Smooth bounce animation */
+            opacity: 1;
+        }
+        #radial-menu.hidden {
+            /* Animated-out state */
+            opacity: 0;
+            pointer-events: none;
+        }
+        /* --- END MODIFICATION --- */
+
+        /* --- Pie Slice Styles --- */
+        .pie-slice {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: #334155;
+            transition: all 0.2s ease;
+            pointer-events: all;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #slice-sim {
+            clip-path: polygon(50% 50%, 8.66% 25%, 50% 0, 91.34% 25%);
+        }
+        #slice-pm {
+            clip-path: polygon(50% 50%, 91.34% 25%, 100% 50%, 50% 100%);
+        }
+        #slice-am {
+            clip-path: polygon(50% 50%, 50% 100%, 0% 50%, 8.66% 25%);
+        }
+        
+        .pie-slice.highlighted {
+            background: #dc2626; /* red-600 */
+            filter: brightness(1.2);
+        }
+
+        .pie-label {
+            color: white;
+            font-size: 1.5rem;
+            font-weight: 600;
+            pointer-events: none;
+            position: absolute;
+        }
+        
+        #slice-sim .pie-label { top: 20%; }
+        #slice-pm .pie-label { top: 60%; left: 65%; }
+        #slice-am .pie-label { top: 60%; right: 65%; }
+        
+        /* --- FIXED: Finger Line with highest z-index --- */
+        #finger-line-svg {
+            position: fixed;
+            inset: 0;
+            z-index: 99999;
+            pointer-events: none;
+        }
+        #finger-line {
+            stroke: rgba(255, 255, 255, 0.7);
+            stroke-width: 3px;
+            stroke-dasharray: 4 4;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-300 flex items-center justify-center min-h-screen">
+    
+    <div class="w-full max-w-md mx-auto bg-slate-800 rounded-2xl shadow-lg p-6 space-y-6 m-4 border border-slate-700">
+        
+        <div id="setup-container" class="hidden">
+             <div class="space-y-2 text-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                </svg>
+                <h1 class="text-2xl font-semibold text-slate-100">User Setup</h1>
+                <p class="text-center text-slate-400 mt-1 pb-4">Please provide your info and the organization email to send submissions to.</p>
+            </div>
+            <div class="space-y-4 pt-2">
+                <div>
+                    <label for="fname-input" class="block text-sm font-medium text-slate-300 mb-1">First Name</label>
+                    <input type="text" id="fname-input" placeholder="e.g., John" class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                 <div>
+                    <label for="lname-input" class="block text-sm font-medium text-slate-300 mb-1">Last Name</label>
+                    <input type="text" id="lname-input" placeholder="e.g., Doe" class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <div>
+                    <label for="email-input" class="block text-sm font-medium text-slate-300 mb-1">Organization Email (Recipient)</label>
+                    <input type="email" id="email-input" placeholder="e.g., scheduling@org.com" class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+                <button id="save-name-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-md">Save Info</button>
+            </div>
+        </div>
+        <div id="main-app-container" class="hidden">
+            <div class="relative space-y-2">
+                <div class="absolute top-0 right-0">
+                    <button id="menu-btn" class="p-2 rounded-full hover:bg-slate-700 focus:outline-none">
+                        <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+                    </button>
+                </div>
+                <div class="text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mx-auto text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-semibold text-slate-100 text-center">Pilot Unavailability</h1>
+                <p class="text-center text-slate-400 mt-1">Select your unavailable times (e.g., appointments).</p>
+            </div>
+            
+            <div id="calendars-container" class="space-y-6 pt-4">
+            </div>
+
+            <button id="submit-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition-all transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 focus:ring-offset-slate-800">
+                Submit
+            </button>
+        </div>
+        
+        <div id="menu-modal" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden"></div>
+        <div id="menu-content" class="fixed top-0 right-0 h-full w-64 bg-slate-800 shadow-lg z-50 p-4 transform translate-x-full">
+             <h2 class="text-lg font-semibold text-white mb-4">Menu</h2>
+             <button id="change-name-btn" class="w-full text-left py-2 px-3 rounded-md hover:bg-slate-700 text-slate-300">User Setup</button>
+        </div>
+
+    </div>
+
+    <div id="radial-menu-backdrop" class="hidden"></div>
+    <div id="radial-menu" class="hidden">
+        <div class="pie-slice" id="slice-sim" data-value="Full Day">
+            <div class="pie-label">Full Day</div>
+        </div>
+        <div class="pie-slice" id="slice-am" data-value="AM">
+            <div class="pie-label">AM</div>
+        </div>
+        <div class="pie-slice" id="slice-pm" data-value="PM">
+            <div class="pie-label">PM</div>
+        </div>
+    </div>
+    
+    <div id="submission-modal" class="fixed inset-0 bg-black bg-opacity-70 z-40 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg space-y-4 border border-slate-700">
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-semibold text-white">Submission Details</h2>
+                <button id="close-modal-btn" class="text-slate-400 hover:text-white text-3xl font-light">&times;</button>
+            </div>
+            <p class="text-slate-400">Your desktop mail client may not be set up. Please copy the details below into your preferred email service (like Gmail or Outlook).</p>
+            <div class="space-y-2">
+                <label class="text-sm font-medium text-slate-300">To:</label>
+                <input type="text" id="modal-email-to" readonly class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-slate-100">
+            </div>
+            <div class="space-y-2">
+                <label class="text-sm font-medium text-slate-300">Subject:</label>
+                <input type="text" id="modal-email-subject" readonly class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-slate-100">
+            </div>
+            <div class="space-y-2">
+                <label class="text-sm font-medium text-slate-300">Body:</label>
+                <textarea id="modal-email-body" readonly rows="8" class="w-full bg-slate-700 border border-slate-600 rounded-md px-3 py-2 text-slate-100 font-mono text-sm"></textarea>
+            </div>
+            <a id="modal-mailto-link" href="#" class="w-full text-center block bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2 px-4 rounded-md transition-all">
+                Or... Try Opening Mail Client
+            </a>
+        </div>
+    </div>
+
+    <!-- SVG must be last in DOM to render on top -->
+    <svg id="finger-line-svg" class="hidden">
+        <line id="finger-line" x1="0" y1="0" x2="0" y2="0" />
+    </svg>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Main App Containers
+            const setupContainer = document.getElementById('setup-container');
+            const mainAppContainer = document.getElementById('main-app-container');
+            
+            // --- NAME/EMAIL ELEMENTS ---
+            const fnameInput = document.getElementById('fname-input');
+            const lnameInput = document.getElementById('lname-input');
+            const emailInput = document.getElementById('email-input'); // New
+            const saveNameBtn = document.getElementById('save-name-btn');
+            
+            // Main App Elements
+            const calendarsContainer = document.getElementById('calendars-container');
+            const submitBtn = document.getElementById('submit-btn');
+
+            // Menu Elements
+            const menuBtn = document.getElementById('menu-btn');
+            const menuModal = document.getElementById('menu-modal');
+            const menuContent = document.getElementById('menu-content');
+            const changeNameBtn = document.getElementById('change-name-btn');
+
+            // Submission Modal Elements
+            const submissionModal = document.getElementById('submission-modal');
+            const closeModalBtn = document.getElementById('close-modal-btn');
+            const modalEmailTo = document.getElementById('modal-email-to');
+            const modalEmailSubject = document.getElementById('modal-email-subject');
+            const modalEmailBody = document.getElementById('modal-email-body');
+            const modalMailtoLink = document.getElementById('modal-mailto-link');
+
+            // --- Radial Menu Elements ---
+            const radialMenu = document.getElementById('radial-menu');
+            const radialBackdrop = document.getElementById('radial-menu-backdrop');
+            const pieSlices = document.querySelectorAll('.pie-slice');
+            
+            // --- Line Elements ---
+            const fingerLineSvg = document.getElementById('finger-line-svg');
+            const fingerLine = document.getElementById('finger-line');
+            
+            // --- Data Storage ---
+            const unavailabilityEvents = new Map(); 
+            let pilotName = localStorage.getItem('pilotName') || null;
+            let orgEmail = localStorage.getItem('orgEmail') || null; // New
+            
+            // --- Drag State Vars ---
+            let isDragging = false;
+            let currentSelectedDate = null;
+            let startCoords = { x: 0, y: 0 }; 
+            
+            // --- Setup/Menu Functions (MODIFIED) ---
+            function showMainApp() {
+                setupContainer.classList.add('hidden');
+                mainAppContainer.classList.remove('hidden');
+            }
+            function showSetup() {
+                mainAppContainer.classList.add('hidden');
+                setupContainer.classList.remove('hidden');
+            }
+            function updateMenuUI() {
+                if (pilotName && orgEmail) {
+                    changeNameBtn.textContent = 'Change User Info';
+                } else {
+                    changeNameBtn.textContent = 'User Setup';
+                }
+            }
+
+            // --- MODIFIED SAVE NAME/EMAIL LOGIC ---
+            saveNameBtn.addEventListener('click', () => {
+                const firstName = fnameInput.value.trim();
+                const lastName = lnameInput.value.trim();
+                const newOrgEmail = emailInput.value.trim();
+
+                fnameInput.placeholder = "e.g., John";
+                lnameInput.placeholder = "e.g., Doe";
+                emailInput.placeholder = "e.g., scheduling@org.com";
+                fnameInput.classList.remove('border-red-500', 'focus:ring-red-500');
+                lnameInput.classList.remove('border-red-500', 'focus:ring-red-500');
+                emailInput.classList.remove('border-red-500', 'focus:ring-red-500');
+
+                let hasError = false;
+
+                if (!firstName) {
+                    fnameInput.value = ''; 
+                    fnameInput.placeholder = "First name is required!";
+                    fnameInput.classList.add('border-red-500', 'focus:ring-red-500');
+                    hasError = true;
+                }
+                if (!lastName) {
+                    lnameInput.value = ''; 
+                    lnameInput.placeholder = "Last name is required!";
+                    lnameInput.classList.add('border-red-500', 'focus:ring-red-500');
+                    hasError = true;
+                }
+                if (!newOrgEmail) {
+                    emailInput.value = ''; 
+                    emailInput.placeholder = "Organization Email is required!";
+                    emailInput.classList.add('border-red-500', 'focus:ring-red-500');
+                    hasError = true;
+                } else if (!/^\S+@\S+\.\S+$/.test(newOrgEmail)) {
+                    emailInput.value = ''; 
+                    emailInput.placeholder = "Please enter a valid email!";
+                    emailInput.classList.add('border-red-500', 'focus:ring-red-500');
+                    hasError = true;
+                }
+
+                if (hasError) {
+                    return; 
+                }
+
+                // --- MODIFIED: Save name as "First Last" ---
+                pilotName = `${firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase()} ${lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase()}`;
+                orgEmail = newOrgEmail; 
+
+                localStorage.setItem('pilotName', pilotName);
+                localStorage.setItem('orgEmail', orgEmail);
+
+                showMainApp();
+                updateMenuUI();
+            });
+
+            function toggleMenu(visible) {
+                if(visible) {
+                    menuModal.classList.remove('hidden');
+                    menuContent.classList.remove('translate-x-full');
+                } else {
+                    menuModal.classList.add('hidden');
+                    menuContent.classList.add('translate-x-full');
+                }
+            }
+            menuBtn.addEventListener('click', () => toggleMenu(true));
+            menuModal.addEventListener('click', () => toggleMenu(false));
+            changeNameBtn.addEventListener('click', () => {
+                toggleMenu(false);
+                showSetup();
+            });
+
+            // --- Submission Modal Logic (Unchanged) ---
+            function toggleSubmissionModal(visible) {
+                if (visible) {
+                    submissionModal.classList.remove('hidden');
+                } else {
+                    submissionModal.classList.add('hidden');
+                }
+            }
+            closeModalBtn.addEventListener('click', () => toggleSubmissionModal(false));
+            submissionModal.addEventListener('click', (e) => {
+                if (e.target === submissionModal) {
+                    toggleSubmissionModal(false);
+                }
+            });
+
+            // --- Render Functions (Unchanged) ---
+            function renderSelections() {
+                document.querySelectorAll('.calendar-day.selectable').forEach(cell => {
+                    const date = cell.dataset.date;
+                    cell.innerHTML = cell.dataset.day; 
+                    cell.classList.remove('selected', 'unavailable'); 
+
+                    if (unavailabilityEvents.has(date)) {
+                        cell.classList.add('unavailable'); 
+                        const type = unavailabilityEvents.get(date);
+                        
+                        if (type && type !== 'Available') {
+                             cell.innerHTML = `${cell.dataset.day}<span class="date-badge">${type}</span>`;
+                        }
+                    }
+                });
+            }
+
+            // --- Create Calendar (Unchanged, uses UTC) ---
+            function createCalendar(year, month, todayDate) {
+                const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                const daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+                const calendarWrapper = document.createElement('div');
+                const header = document.createElement('h2');
+                header.className = 'text-lg font-semibold text-center text-slate-200';
+                header.textContent = `${monthNames[month]} ${year}`;
+                calendarWrapper.appendChild(header);
+                const table = document.createElement('table');
+                table.className = 'w-full calendar-table mt-2';
+                const thead = document.createElement('thead');
+                const headerRow = document.createElement('tr');
+                daysOfWeek.forEach(day => {
+                    const th = document.createElement('th');
+                    th.className = 'text-xs text-slate-400 font-medium';
+                    th.textContent = day;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+                table.appendChild(thead);
+                const tbody = document.createElement('tbody');
+                const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay(); 
+                const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(); 
+                let date = 1;
+                for (let i = 0; i < 6; i++) {
+                    const row = document.createElement('tr');
+                    for (let j = 0; j < 7; j++) {
+                        const cell = document.createElement('td');
+                        cell.className = 'calendar-day text-center w-10 h-10 p-1 cursor-pointer rounded-full';
+                        if (i === 0 && j < firstDay || date > daysInMonth) {
+                            cell.classList.remove('cursor-pointer');
+                        } else {
+                            const currentDate = new Date(Date.UTC(year, month, date)); 
+                            cell.textContent = date;
+                            cell.dataset.day = date; 
+                            
+                            if (currentDate < todayDate) { 
+                                cell.classList.add('past');
+                                cell.classList.remove('cursor-pointer');
+                            } else {
+                                cell.classList.add('selectable');
+                                const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+                                cell.dataset.date = dateString;
+                            }
+                            date++;
+                        }
+                        row.appendChild(cell);
+                    }
+                    tbody.appendChild(row);
+                    if (date > daysInMonth) break;
+                }
+                table.appendChild(tbody);
+                calendarWrapper.appendChild(table);
+                calendarsContainer.appendChild(calendarWrapper);
+            }
+            
+            // --- FIXED: Radial Menu & Drag Logic with animation from clicked position ---
+            function getEventCoords(e) {
+                if (e.touches) {
+                    return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                }
+                return { x: e.clientX, y: e.clientY };
+            }
+            
+            function getReleaseCoords(e) {
+                if (e.changedTouches) {
+                    return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+                }
+                return { x: e.clientX, y: e.clientY };
+            }
+
+            function showRadialMenu(clickX, clickY) {
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                
+                // Position the line from center to click position
+                fingerLine.setAttribute('x1', centerX);
+                fingerLine.setAttribute('y1', centerY);
+                fingerLine.setAttribute('x2', clickX);
+                fingerLine.setAttribute('y2', clickY);
+                
+                // Show the backdrop and line immediately
+                radialBackdrop.classList.remove('hidden');
+                fingerLineSvg.classList.remove('hidden');
+                
+                // Set radial menu to start at clicked position with small scale
+                radialMenu.style.left = clickX + 'px';
+                radialMenu.style.top = clickY + 'px';
+                radialMenu.style.transform = 'translate(-50%, -50%) scale(0.1)';
+                
+                // Show the menu (remove hidden to trigger display)
+                radialMenu.classList.remove('hidden');
+                
+                // Force reflow to ensure starting state is rendered
+                radialMenu.offsetHeight;
+                
+                // Animate to center position with full scale
+                setTimeout(() => {
+                    radialMenu.style.left = centerX + 'px';
+                    radialMenu.style.top = centerY + 'px';
+                    radialMenu.style.transform = 'translate(-50%, -50%) scale(1)';
+                }, 10);
+            }
+
+            function hideRadialMenu() {
+                radialMenu.classList.add('hidden');
+                radialBackdrop.classList.add('hidden');
+                fingerLineSvg.classList.add('hidden');
+                pieSlices.forEach(slice => slice.classList.remove('highlighted'));
+            }
+
+            function onDragStart(e) {
+                const cell = e.target.closest('.calendar-day');
+                if (e.button && e.button !== 0) {
+                    return;
+                }
+                if (!cell || !cell.classList.contains('selectable')) return;
+                
+                e.preventDefault();
+                currentSelectedDate = cell.dataset.date;
+                startCoords = getEventCoords(e); 
+                isDragging = true;
+                
+                // Show menu starting from the clicked position
+                showRadialMenu(startCoords.x, startCoords.y);
+            }
+
+            function onDragMove(e) {
+                if (!isDragging) return;
+
+                e.preventDefault();
+                const { x, y } = getEventCoords(e);
+                
+                // Update the finger line to follow the drag
+                const centerX = window.innerWidth / 2;
+                const centerY = window.innerHeight / 2;
+                fingerLine.setAttribute('x1', centerX);
+                fingerLine.setAttribute('y1', centerY);
+                fingerLine.setAttribute('x2', x);
+                fingerLine.setAttribute('y2', y);
+
+                const element = document.elementFromPoint(x, y);
+                const targetSlice = element ? element.closest('.pie-slice') : null;
+
+                pieSlices.forEach(slice => {
+                    if (slice === targetSlice) {
+                        slice.classList.add('highlighted');
+                    } else {
+                        slice.classList.remove('highlighted');
+                    }
+                });
+            }
+
+            function onDragEnd(e) {
+                if (!isDragging) return;
+                
+                e.preventDefault();
+                isDragging = false;
+                
+                const { x, y } = getReleaseCoords(e);
+                
+                const element = document.elementFromPoint(x, y);
+                const targetSlice = element ? element.closest('.pie-slice') : null;
+                
+                hideRadialMenu(); 
+
+                if (targetSlice) {
+                    const type = targetSlice.dataset.value;
+                    unavailabilityEvents.set(currentSelectedDate, type);
+                } else {
+                    unavailabilityEvents.delete(currentSelectedDate);
+                }
+
+                renderSelections();
+                currentSelectedDate = null;
+            }
+
+            // --- Attach Event Listeners (Unchanged) ---
+            calendarsContainer.addEventListener('mousedown', onDragStart);
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+            calendarsContainer.addEventListener('touchstart', onDragStart, { passive: false });
+            document.addEventListener('touchmove', onDragMove, { passive: false });
+            document.addEventListener('touchend', onDragEnd, { passive: false });
+            calendarsContainer.addEventListener('contextmenu', e => e.preventDefault());
+
+
+            // --- Submit Button Logic (MODIFIED) ---
+            submitBtn.addEventListener('click', function() {
+                if (unavailabilityEvents.size === 0) {
+                    const originalText = submitBtn.textContent;
+                    submitBtn.textContent = 'Please select at least one date!';
+                    setTimeout(() => { submitBtn.textContent = originalText; }, 2000);
+                    return;
+                }
+
+                const eventsArray = []; 
+                const sortedEvents = new Map([...unavailabilityEvents.entries()].sort());
+
+                sortedEvents.forEach((value, date) => {
+                    let availabilityValue = '';
+                    
+                    if (value === 'AM') {
+                        availabilityValue = 'PM';
+                    } else if (value === 'PM') {
+                        availabilityValue = 'AM';
+                    } else if (value === 'Full Day') {
+                        availabilityValue = 'Unavailable';
+                    }
+                    
+                    if (availabilityValue) {
+                        eventsArray.push({
+                            eventDate: date,
+                            availability: availabilityValue
+                        });
+                    }
+                });
+                
+                // --- MODIFIED: pilotName is "First Last"
+                const jsonData = {
+                    pilotName: pilotName || "NOT SET", 
+                    events: eventsArray 
+                };
+                
+                const email = orgEmail; // Use saved org email
+
+                // --- MODIFIED: Create subjectName from "First Last" pilotName
+                let subjectName = pilotName || "NOT SET";
+                if (pilotName) {
+                    const parts = pilotName.split(' ');
+                    if (parts.length >= 1) {
+                        const firstName = parts.shift().toUpperCase();
+                        const lastName = parts.join(' ').toUpperCase();
+                        subjectName = `${lastName}, ${firstName}`; // "DOE, JOHN"
+                    } else {
+                        subjectName = pilotName.toUpperCase(); // Fallback
+                    }
+                }
+                const subject = `Pilot Availability Submission - ${subjectName}`;
+                // --- END MODIFICATION ---
+                
+                const body = `Pilot availability and unavailability report:\n\n${JSON.stringify(jsonData, null, 2)}`;
+                const mailtoLink = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                
+                modalEmailTo.value = email;
+                modalEmailSubject.value = subject;
+                modalEmailBody.value = body;
+                modalMailtoLink.href = mailtoLink;
+
+                window.location.href = mailtoLink;
+
+                setTimeout(() => {
+                    toggleSubmissionModal(true);
+                }, 1500); 
+            });
+
+            // --- Initialization (MODIFIED) ---
+            function initializeApp() {
+                const now = new Date();
+                const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+                
+                const currentYear = today.getUTCFullYear();
+                const currentMonth = today.getUTCMonth();
+
+                if (pilotName && orgEmail) {
+                    // --- MODIFIED: Parse "First Last" ---
+                    const parts = pilotName.split(' ');
+                    if (parts.length >= 1) {
+                        fnameInput.value = parts.shift(); // "John"
+                        lnameInput.value = parts.join(' '); // "Doe" or "Van Der Beek"
+                    } else {
+                        fnameInput.value = pilotName; // Fallback
+                    }
+                    emailInput.value = orgEmail;
+                    showMainApp();
+                } else {
+                    // Populate whatever we have
+                    if (pilotName) {
+                        const parts = pilotName.split(' ');
+                        if (parts.length >= 1) {
+                            fnameInput.value = parts.shift(); 
+                            lnameInput.value = parts.join(' ');
+                        } else {
+                            fnameInput.value = pilotName;
+                        }
+                    }
+                    if (orgEmail) {
+                        emailInput.value = orgEmail;
+                    }
+                    showSetup();
+                }
+                updateMenuUI(); 
+                
+                const nextMonth = (currentMonth + 1) % 12;
+                const nextYear = (currentMonth + 1 > 11) ? currentYear + 1 : currentYear;
+
+                createCalendar(currentYear, currentMonth, today); 
+                createCalendar(nextYear, nextMonth, today);
+                
+                renderSelections();
+            }
+
+            initializeApp();
+        });
+    </script>
+
+</body>
+</html>
